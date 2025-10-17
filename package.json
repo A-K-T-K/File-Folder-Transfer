@@ -6,7 +6,7 @@
   "bin": "server.js",
   "scripts": {
     "start": "node server.js",
-    "build": "pkg . --targets node18-win-x64,node18-macos-x64,node18-linux-x64 --output dist/FIle-Folder Transfer"
+    "build": "pkg . --targets node18-win-x64,node18-macos-x64,node18-linux-x64 --output dist/FIle-Folder_Transfer"
   },
   "author": "",
   "license": "ISC",
@@ -29,4 +29,5 @@
     "outputPath": "dist"
   }
 }
+
 
