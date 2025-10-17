@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File tranfer-Server Dashboard</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        :root {
+            --light-background: #e0e0e0;
+            --light-card-background: #e0e0e0;
+            --light-shadow-dark: #bebebe;
+            --light-shadow-light: #ffffff;
+            --light-text-color: #3b3b3b;
+            --light-grey-color: #828282;
+            --light-accent-color: #4a69bd;
+            --light-accent-hover: #5c7ee0;
+            --light-accent-shadow: rgba(74, 105, 189, 0.4);
+            --light-success-color: #27ae60;
+            --light-error-color: #c0392b;
+            --light-border-color: #d1d1d1;
+            --light-log-bg: #f5f5f5;
+            --light-log-panel-bg: #d1d1d1;
+
+            --dark-background: #212121;
+            --dark-card-background: #212121;
+            --dark-shadow-dark: #181818;
+            --dark-shadow-light: #2a2a2a;
+            --dark-text-color: #e0e0e0;
+            --dark-grey-color: #a9a9a9;
+            --dark-accent-color: #5c7ee0;
+            --dark-accent-hover: #6a8ff2;
+            --dark-accent-shadow: rgba(92, 126, 224, 0.4);
+            --dark-success-color: #2ecc71;
+            --dark-error-color: #e74c3c;
+            --dark-border-color: #4a4a6a;
+            --dark-log-bg: #2c2c2c;
+            --dark-log-panel-bg: #1e1e1e;
+        }
+
+        [data-theme="light"] {
+            --background: var(--light-background);
+            --card-background: var(--light-card-background);
+            --shadow-dark: var(--light-shadow-dark);
+            --shadow-light: var(--light-shadow-light);
+            --text-color: var(--light-text-color);
+            --grey-color: var(--light-grey-color);
+            --accent-color: var(--light-accent-color);
+            --accent-hover: var(--light-accent-hover);
+            --accent-shadow: var(--light-accent-shadow);
+            --success-color: var(--light-success-color);
+            --error-color: var(--light-error-color);
+            --border-color: var(--light-border-color);
+            --log-bg: var(--light-log-bg);
+            --log-panel-bg: var(--light-log-panel-bg);
+        }
+
+        [data-theme="dark"] {
+            --background: var(--dark-background);
+            --card-background: var(--dark-card-background);
+            --shadow-dark: var(--dark-shadow-dark);
+            --shadow-light: var(--dark-shadow-light);
+            --text-color: var(--dark-text-color);
+            --grey-color: var(--dark-grey-color);
+            --accent-color: var(--dark-accent-color);
+            --accent-hover: var(--dark-accent-hover);
+            --accent-shadow: var(--dark-accent-shadow);
+            --success-color: var(--dark-success-color);
+            --error-color: var(--dark-error-color);
+            --border-color: var(--dark-border-color);
+            --log-bg: var(--dark-log-bg);
+            --log-panel-bg: var(--dark-log-panel-bg);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html { font-size: 100%; }
+        
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background-color: var(--background);
+            color: var(--text-color);
+            min-height: 100vh;
+            padding: clamp(1rem, 5vw, 2rem);
+            transition: background-color 0.3s ease, color 0.3s ease;
+            overflow-x: hidden;
+            position: relative;
+        }
+
+        .dashboard-grid { display: grid; grid-template-columns: 1fr; gap: clamp(1rem, 5vw, 2rem); max-width: 80rem; margin: 0 auto; position: relative; }
+        @media (min-width: 1024px) { .dashboard-grid { grid-template-columns: minmax(0, 400px) 1fr; } }
+        .left-panel, .right-panel { display: flex; flex-direction: column; gap: clamp(1rem, 5vw, 2rem); position: relative; }
+        .card { padding: clamp(1.25rem, 5vw, 2rem); border-radius: 1.875rem; background: var(--card-background); box-shadow: 1rem 1rem 2rem var(--shadow-dark), -1rem -1rem 2rem var(--shadow-light); transition: background-color 0.3s ease, box-shadow 0.3s ease; position: relative; }
+        .header { display: flex; justify-content: space-between; align-items: center; }
+        .server-info { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+        .server-info h1 { color: var(--accent-color); font-size: clamp(1.2rem, 4vw, 1.5rem); }
+        h1#serverNameWrapper { cursor: pointer; position: relative; padding: 5px; border-radius: 5px; transition: background-color 0.3s; }
+        h1#serverNameWrapper:hover { background-color: var(--shadow-dark); }
+        #serverNameInput { font-family: 'Poppins', sans-serif; font-size: clamp(1.2rem, 4vw, 1.5rem); font-weight: 600; border: none; background: var(--log-bg); color: var(--text-color); padding: 5px; border-radius: 5px; outline: 2px solid var(--accent-color); max-width: 100%; }
+        .qr-card { text-align: center; }
+        .qr-code img { border-radius: 1rem; box-shadow: 0.5rem 0.5rem 1rem var(--shadow-dark), -0.5rem -0.5rem 1rem var(--shadow-light); width: 70%; max-width: 250px; height: auto; margin: 1rem auto; }
+        .qr-details h2 { font-size: clamp(1.1rem, 4vw, 1.25rem); margin-bottom: 0.5rem; }
+        .manual-connect-info { margin-top: 1rem; font-size: 0.9rem; color: var(--grey-color); line-height: 1.5; }
+        .manual-connect-info strong { color: var(--text-color); font-weight: 600; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .card-header h2 { margin-bottom: 0; text-align: left; flex-grow: 1; }
+        .right-panel .card h2 { text-align: center; color: var(--text-color); font-size: clamp(1.1rem, 4vw, 1.25rem); }
+        #connectedClientsList { list-style: none; padding: 0.5rem; margin: -0.5rem; max-height: 200px; overflow-y: auto; }
+        #connectedClientsList li { background: var(--card-background); box-shadow: 0.25rem 0.25rem 0.5rem var(--shadow-dark), -0.25rem -0.25rem 0.5rem var(--shadow-light); color: var(--accent-color); padding: 0.75rem 1.5rem; border-radius: 5rem; margin-bottom: 0.75rem; font-size: 1rem; font-weight: 600; text-align: center; display: flex; align-items: center; justify-content: center; gap: 0.5rem; word-break: break-all; }
+        #connectedClientsList .no-clients { color: var(--grey-color); text-align: center; background: none; box-shadow: none; font-weight: 400; }
+        #transfersList .transfer-item { margin-bottom: 1rem; }
+        #transfersList .transfer-item p { font-size: 0.9rem; margin-bottom: 0.3rem; word-break: break-all; }
+        .progress-bar-container { width: 100%; height: 0.8rem; background: var(--shadow-dark); border-radius: 0.8rem; overflow: hidden; }
+        .progress-bar { height: 100%; width: 0%; background: var(--accent-color); border-radius: 0.8rem; transition: width 0.2s ease-out; }
+        .progress-info { display: flex; justify-content: space-between; font-size: 0.75rem; margin-top: 0.3rem; color: var(--grey-color); }
+        #completedList { list-style: none; padding-left: 0; max-height: 200px; overflow-y: auto; }
+        #completedList li { background: var(--log-bg); padding: 0.5rem 1rem; border-radius: 0.5rem; margin-bottom: 0.5rem; font-size: 0.9rem; }
+        #logPanel { position: fixed; top: 0; right: -100%; width: 100%; max-width: 400px; height: 100%; background: var(--log-panel-bg); box-shadow: -10px 0 20px rgba(0,0,0,0.2); transition: right 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94); z-index: 100; display: flex; flex-direction: column; padding: 1.5rem; }
+        #logPanel.open { right: 0; }
+        #logPanel h2 { text-align: center; margin-bottom: 1rem; }
+        #activityLog { flex-grow: 1; background-color: var(--log-bg); border-radius: 1rem; padding: 1rem; font-family: 'Fira Code', monospace; font-size: 0.8rem; overflow-y: auto; box-shadow: inset 0.5rem 0.5rem 1rem var(--shadow-dark), inset -0.5rem -0.5rem 1rem var(--shadow-light); }
+        button { padding: 0.6rem 1rem; border-radius: 3rem; cursor: pointer; border: 0; background-color: var(--card-background); box-shadow: 0.5rem 0.5rem 1rem var(--shadow-dark), -0.5rem -0.5rem 1rem var(--shadow-light); font-size: 0.8rem; font-weight: 600; color: var(--accent-color); transition: all 0.5s ease; }
+        button:hover { background-color: var(--accent-color); color: #fff; box-shadow: 0 0.5rem 1.8rem 0 var(--accent-shadow); }
+        .icon-btn { padding: 0; width: 2.5rem; height: 2.5rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .icon-btn svg { width: 1.25rem; height: 1.25rem; stroke: var(--accent-color); transition: stroke 0.3s ease; }
+        .icon-btn:hover svg { stroke: #fff; }
+        .toggle { width: 3rem; height: 3rem; border-radius: 50%; display: grid; place-items: center; cursor: pointer; line-height: 1; position: relative; }
+        .input { display: none; }
+        .icon { grid-column: 1 / 1; grid-row: 1 / 1; transition: transform 500ms; line-height: 0.1; }
+        .icon--moon { transition-delay: 200ms; color: var(--grey-color); }
+        .icon--sun { transform: scale(0); color: #f5c542; }
+        #switch:checked ~ .icon--moon { transform: rotate(360deg) scale(0); }
+        #switch:checked ~ .icon--sun { transition-delay: 200ms; transform: scale(1) rotate(360deg); }
+        #toast { visibility: hidden; display: flex; align-items: center; gap: 0.75rem; min-width: 16rem; max-width: 90%; width: auto; color: #fff; text-align: left; border-radius: 1.25rem; padding: 1rem; position: fixed; z-index: 110; left: 50%; top: 1.5rem; transform: translate(-50%, -150%); font-size: 1rem; font-weight: 500; opacity: 0; transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.5s ease; }
+        #toast.show { visibility: visible; transform: translate(-50%, 0); opacity: 1; }
+        #toast.success { background-color: var(--success-color); } #toast.error { background-color: var(--error-color); } #toast.info { background-color: var(--accent-color); }
+        #toast-icon { font-size: 1.2rem; }
+        
+        .pin-display { cursor: pointer; display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-radius: 0.5rem; transition: background-color 0.3s; }
+        .pin-display:hover { background-color: var(--shadow-dark); }
+        .pin-display span { font-size: 1.2rem; font-weight: 600; letter-spacing: 2px; color: var(--accent-color); }
+        #pinInput { font-family: 'Poppins', sans-serif; font-size: 1.2rem; font-weight: 600; letter-spacing: 2px; border: none; background: var(--log-bg); color: var(--text-color); padding: 5px; border-radius: 5px; outline: 2px solid var(--accent-color); width: 6rem; text-align: center; }
+
+        .directory-display { cursor: pointer; display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-radius: 0.5rem; transition: background-color 0.3s; word-break: break-all; }
+        .directory-display:hover { background-color: var(--shadow-dark); }
+        .directory-display span { font-size: 0.9rem; font-weight: 500; color: var(--text-color); }
+        #directoryInput { font-family: 'Poppins', sans-serif; font-size: 0.9rem; font-weight: 500; border: none; background: var(--log-bg); color: var(--text-color); padding: 5px; border-radius: 5px; outline: 2px solid var(--accent-color); width: 100%; }
+
+    </style>
+</head>
+<body>
+    <div class="dashboard-grid">
+        <div class="left-panel">
+            <div class="card header">
+                <div class="server-info">
+                    <h1 id="serverNameWrapper" title="Click to edit server name"><span id="serverName">{{ server_name }}</span></h1>
+                </div>
+                <label for="switch" class="toggle">
+                    <input type="checkbox" class="input" id="switch" />
+                     <div class="icon icon--moon"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path fill-rule="evenodd" d="M9.528 1.718a.75.75 0 01.162.819A8.97 8.97 0 009 6a9 9 0 009 9 8.97 8.97 0 003.463-.69.75.75 0 01.981.98 10.503 10.503 0 01-9.694 6.46c-5.799 0-10.5-4.701-10.5-10.5 0-4.368 2.667-8.112 6.46-9.694a.75.75 0 01.818.162z" clip-rule="evenodd"></path></svg></div>
+                    <div class="icon icon--sun"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="24" height="24"><path d="M12 2.25a.75.75 0 01.75.75v2.25a.75.75 0 01-1.5 0V3a.75.75 0 01.75-.75zM7.5 12a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM18.894 6.166a.75.75 0 00-1.06-1.06l-1.591 1.59a.75.75 0 101.06 1.061l1.591-1.59zM21.75 12a.75.75 0 01-.75.75h-2.25a.75.75 0 010-1.5H21a.75.75 0 01.75.75zM17.834 18.894a.75.75 0 001.06-1.06l-1.59-1.591a.75.75 0 10-1.061 1.06l1.59 1.591zM12 18a.75.75 0 01.75.75V21a.75.75 0 01-1.5 0v-2.25A.75.75 0 0112 18zM7.758 17.303a.75.75 0 00-1.061-1.06l-1.591 1.59a.75.75 0 001.06 1.061l1.591-1.59zM6 12a.75.75 0 01-.75.75H3a.75.75 0 010-1.5h2.25A.75.75 0 016 12zM6.697 7.757a.75.75 0 001.06-1.06l-1.59-1.591a.75.75 0 00-1.061 1.06l1.59 1.591z"></path></svg></div>
+                </label>
+            </div>
+            <div class="card qr-card">
+                <div class="qr-details">
+                   <h2>Scan to Connect</h2>
+                </div>
+                <div class="qr-code">
+                   <img src="{{ qr_code }}" id="qrCodeImg" alt="QR Code">
+                </div>
+                <p class="manual-connect-info" id="manualConnectInfo">
+                    Or type <strong>{{ display_url }}</strong> into your browser and enter PIN: <strong id="manualPin">{{ pin }}</strong>
+                </p>
+            </div>
+            <div class="card">
+                <h2>Connection PIN</h2>
+                <div class="pin-display" id="pinDisplayWrapper" title="Click to change PIN">
+                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                    <span id="pinDisplay">{{ pin }}</span>
+                </div>
+            </div>
+            <div class="card">
+                <h2>Upload Directory</h2>
+                <div class="directory-display" id="directoryDisplayWrapper" title="Click to change directory">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                    <span id="directoryDisplay">{{ upload_folder }}</span>
+                </div>
+            </div>
+        </div>
+        <div class="right-panel">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Connected Devices</h2>
+                    <button id="logToggleBtn" class="icon-btn" title="View Activity Log">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    </button>
+                </div>
+                <ul id="connectedClientsList"><li class="no-clients">Waiting for devices...</li></ul>
+            </div>
+            <div class="card">
+                <h2>Active Transfers</h2>
+                <div id="transfersList"></div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <h2>Completed Files</h2>
+                    <button id="openFolderBtn" class="icon-btn" title="Open Uploads Folder"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></button>
+                </div>
+                <ul id="completedList"></ul>
+            </div>
+        </div>
+    </div>
+    <div id="logPanel"><h2>Activity Log</h2><div id="activityLog"></div></div>
+    <div id="toast"><span id="toast-icon"></span><span id="toastMessage"></span></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const socket = io('/server_ui');
+            const elements = {
+                activityLog: document.getElementById('activityLog'),
+                serverName: document.getElementById('serverName'),
+                serverNameWrapper: document.getElementById('serverNameWrapper'),
+                qrCodeImg: document.getElementById('qrCodeImg'),
+                manualConnectInfo: document.getElementById('manualConnectInfo'),
+                pinDisplay: document.getElementById('pinDisplay'),
+                pinDisplayWrapper: document.getElementById('pinDisplayWrapper'),
+                directoryDisplay: document.getElementById('directoryDisplay'),
+                directoryDisplayWrapper: document.getElementById('directoryDisplayWrapper'),
+                themeSwitch: document.getElementById('switch'),
+                toast: document.getElementById('toast'), toastIcon: document.getElementById('toast-icon'), toastMessage: document.getElementById('toastMessage'),
+                logPanel: document.getElementById('logPanel'), logToggleBtn: document.getElementById('logToggleBtn'),
+                connectedClientsList: document.getElementById('connectedClientsList'),
+                transfersList: document.getElementById('transfersList'),
+                completedList: document.getElementById('completedList'),
+                openFolderBtn: document.getElementById('openFolderBtn'),
+            };
+            let toastTimer;
+
+            // --- Socket.IO Handlers ---
+            socket.on('connect', () => console.log('Dashboard connected.'));
+            socket.on('log_history', data => { elements.activityLog.innerHTML = ''; data.logs.forEach(msg => addLogMessage(msg, false)); });
+            socket.on('log_message', data => addLogMessage(data.message));
+            socket.on('server_name_updated', data => elements.serverName.textContent = data.name);
+            socket.on('client_update', data => {
+                const clients = data.clients || [];
+                elements.connectedClientsList.innerHTML = '';
+                if (clients.length > 0) {
+                    clients.forEach(name => {
+                        const li = document.createElement('li');
+                        li.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect><line x1="12" y1="18" x2="12.01" y2="18"></line></svg><span>${name}</span>`;
+                        elements.connectedClientsList.appendChild(li);
+                    });
+                } else {
+                    const li = document.createElement('li');
+                    li.className = 'no-clients'; li.textContent = 'Waiting for devices...';
+                    elements.connectedClientsList.appendChild(li);
+                }
+            });
+            socket.on('client_connected', () => showToast(`📱 Device connected`, 'info'));
+            socket.on('client_disconnected', () => showToast(`🔌 Device disconnected`, 'info'));
+            socket.on('transfer_started', data => {
+                const item = document.createElement('div'); item.className = 'transfer-item'; item.id = `transfer-${data.transfer_id}`;
+                item.innerHTML = `<p>${data.fileName}</p><div class="progress-bar-container"><div class="progress-bar"></div></div><div class="progress-info"><span class="progress-text">Starting...</span><span class="progress-percent">0%</span></div>`;
+                elements.transfersList.appendChild(item);
+            });
+            socket.on('transfer_progress', data => {
+                const item = document.getElementById(`transfer-${data.transfer_id}`);
+                if (item) {
+                    const percent = Math.round((data.received / data.total) * 100);
+                    item.querySelector('.progress-bar').style.width = `${percent}%`;
+                    item.querySelector('.progress-percent').textContent = `${percent}%`;
+                    item.querySelector('.progress-text').textContent = `${formatBytes(data.received)} / ${formatBytes(data.total)}`;
+                }
+            });
+            socket.on('transfer_complete', data => {
+                const item = document.getElementById(`transfer-${data.transfer_id}`); if (item) item.remove();
+                const li = document.createElement('li'); li.textContent = data.fileName; elements.completedList.prepend(li);
+                showToast(`✅ '${truncate(data.fileName)}' received!`, 'success');
+            });
+            socket.on('transfer_cancelled', data => { const item = document.getElementById(`transfer-${data.transfer_id}`); if (item) item.remove(); showToast(`❌ '${truncate(data.fileName)}' cancelled`, 'error'); });
+            socket.on('pin_updated', data => {
+                elements.pinDisplay.textContent = data.pin;
+                elements.qrCodeImg.src = data.qr_code;
+                elements.manualConnectInfo.innerHTML = `Or type <strong>${data.display_url}</strong> into your browser and enter PIN: <strong id="manualPin">${data.pin}</strong>`;
+                showToast('🔒 PIN and QR code updated!', 'success');
+            });
+            socket.on('pin_update_failed', data => showToast(data.message, 'error'));
+            socket.on('upload_directory_updated', data => {
+                elements.directoryDisplay.textContent = data.path;
+                showToast('📁 Upload directory updated!', 'success');
+            });
+            socket.on('upload_directory_update_failed', data => showToast(data.message, 'error'));
+
+            // --- UI Event Listeners ---
+            elements.serverNameWrapper.addEventListener('click', () => {
+                if (elements.serverNameWrapper.querySelector('input')) return;
+                const currentName = elements.serverName.textContent, input = document.createElement('input');
+                input.id = 'serverNameInput'; input.value = currentName;
+                elements.serverName.style.display = 'none'; elements.serverNameWrapper.appendChild(input);
+                input.focus(); input.select();
+                const save = () => {
+                    const newName = input.value.trim();
+                    if (newName && newName !== currentName) { 
+                        socket.emit('change_server_name', { name: newName }); 
+                        elements.serverName.textContent = newName; 
+                    }
+                    input.remove(); elements.serverName.style.display = 'inline';
+                };
+                input.addEventListener('blur', save);
+                input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); else if (e.key === 'Escape') { input.remove(); elements.serverName.style.display = 'inline'; } });
+            });
+
+            elements.pinDisplayWrapper.addEventListener('click', () => {
+                if (elements.pinDisplayWrapper.querySelector('input')) return;
+                const currentPin = elements.pinDisplay.textContent, input = document.createElement('input');
+                input.id = 'pinInput'; input.value = currentPin; input.type = "tel"; input.maxLength = 4;
+                elements.pinDisplay.style.display = 'none'; elements.pinDisplayWrapper.appendChild(input);
+                input.focus(); input.select();
+                const save = () => {
+                    const newPin = input.value.trim();
+                    if (newPin && newPin !== currentPin) { socket.emit('change_pin', { pin: newPin }); }
+                    input.remove(); elements.pinDisplay.style.display = 'inline-block';
+                };
+                input.addEventListener('blur', save);
+                input.addEventListener('keydown', e => { if (e.key === 'Enter') input.blur(); else if (e.key === 'Escape') { input.remove(); elements.pinDisplay.style.display = 'inline-block'; } });
+            });
+            
+            elements.directoryDisplayWrapper.addEventListener('click', () => {
+                if (elements.directoryDisplayWrapper.querySelector('input')) return;
+                const currentPath = elements.directoryDisplay.textContent;
+                const input = document.createElement('input');
+                input.id = 'directoryInput';
+                input.value = currentPath;
+                elements.directoryDisplay.style.display = 'none';
+                elements.directoryDisplayWrapper.querySelector('svg').style.display = 'none';
+                elements.directoryDisplayWrapper.appendChild(input);
+                input.focus();
+                input.select();
+                
+                const save = () => {
+                    const newPath = input.value.trim();
+                    if (newPath && newPath !== currentPath) {
+                        socket.emit('change_upload_directory', { path: newPath });
+                    }
+                    input.remove();
+                    elements.directoryDisplay.style.display = 'inline-block';
+                    elements.directoryDisplayWrapper.querySelector('svg').style.display = 'inline-block';
+                };
+
+                input.addEventListener('blur', save);
+                input.addEventListener('keydown', e => {
+                    if (e.key === 'Enter') {
+                        input.blur();
+                    } else if (e.key === 'Escape') {
+                        input.remove();
+                        elements.directoryDisplay.style.display = 'inline-block';
+                        elements.directoryDisplayWrapper.querySelector('svg').style.display = 'inline-block';
+                    }
+                });
+            });
+
+            elements.logToggleBtn.addEventListener('click', () => { elements.logPanel.classList.toggle('open'); });
+            document.body.addEventListener('click', (e) => {
+                if(elements.logPanel.classList.contains('open') && !elements.logPanel.contains(e.target) && !elements.logToggleBtn.contains(e.target)) {
+                    elements.logPanel.classList.remove('open');
+                }
+            });
+
+            elements.openFolderBtn.addEventListener('click', () => {
+                fetch('/open-uploads-folder', { method: 'POST' }).then(res => res.json()).then(data => {
+                    if (data.status === 'success') showToast('📂 Opening folder...', 'info'); else showToast('🔥 Could not open folder.', 'error');
+                }).catch(() => showToast('🔥 Error opening folder.', 'error'));
+            });
+            elements.themeSwitch.addEventListener('change', () => applyTheme(elements.themeSwitch.checked ? 'light' : 'dark'));
+
+            // --- Helper Functions ---
+            function addLogMessage(message, scroll = true) {
+                const p = document.createElement('p'); p.textContent = message; elements.activityLog.appendChild(p);
+                if (scroll) elements.activityLog.scrollTop = elements.activityLog.scrollHeight;
+            }
+            function showToast(message, type = 'info') {
+                clearTimeout(toastTimer);
+                elements.toastIcon.textContent = { success: '✅', info: 'ℹ️', error: '❌' }[type];
+                elements.toastMessage.textContent = message; elements.toast.className = `show ${type}`;
+                toastTimer = setTimeout(() => { elements.toast.className = elements.toast.className.replace('show', ''); }, 4000);
+            }
+            function applyTheme(theme) {
+                document.body.setAttribute('data-theme', theme);
+                elements.themeSwitch.checked = theme === 'light';
+                localStorage.setItem('theme', theme);
+            }
+            function formatBytes(bytes, d=2) {
+                if (bytes === 0) return '0 Bytes'; const k=1024, sizes=['Bytes', 'KB', 'MB', 'GB', 'TB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(d<0?0:d)) + ' ' + sizes[i];
+            }
+            function truncate(str, len=20) { return str.length <= len ? str : str.slice(0, len-3) + '...'; }
+
+            // --- Initialization ---
+            const preferDark = window.matchMedia('(prefers-color-scheme: dark)');
+            const savedTheme = localStorage.getItem('theme');
+            applyTheme(savedTheme ? savedTheme : (preferDark.matches ? 'dark' : 'light'));
+            preferDark.addEventListener('change', e => { if (!localStorage.getItem('theme')) applyTheme(e.matches ? 'dark' : 'light'); });
+        });
+    </script>
+</body>
+</html>
+
