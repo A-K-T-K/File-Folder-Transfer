@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/v2/config.json",
+  "productName": "File & Folder Transfer",
+  "version": "0.0.1",
+  "identifier": "com.aktk.filefoldertransfer",
+  "build": {
+    "beforeDevCommand": "node server.js",
+    "beforeBuildCommand": "node scripts/build-sidecar.js",
+    "devUrl": "http://localhost:5000/server",
+    "frontendDist": "http://localhost:5000/server"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "File & Folder Transfer",
+        "url": "http://localhost:5000/server",
+        "width": 1100,
+        "height": 780,
+        "minWidth": 780,
+        "minHeight": 580,
+        "center": true,
+        "resizable": true,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/server"
+    ]
+  }
+}
+

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+
+# Rust build output (can be several GB) and Tauri's generated sidecar binaries
+# (scripts/build-sidecar.js / npm run build regenerate these on demand)
+src-tauri/target/
+src-tauri/binaries/
+src-tauri/gen/

@@ -1,111 +1,101 @@
-# Build a Standalone Executable with `pkg`
+<div align="center">
 
-This guide will walk you through the process of packaging your Node.js application into a standalone executable using the `pkg` package. Once built, the executable can run on Windows, macOS, or Linux without requiring Node.js to be installed.
+<img src="icon.svg" alt="File & Folder Transfer logo" width="96" height="96">
 
-## Steps to Package Your Application
+# File & Folder Transfer
 
-### Step 1: Install `pkg`
+**Fast, secure, LAN-only file and folder transfer between your PC and any phone or tablet — no cloud, no cables, no accounts.**
 
-First, you need to install `pkg` as a development dependency in your project. Open your terminal or command prompt in the root directory of your project and run the following command:
+![Version](https://img.shields.io/badge/version-0.0.1-479ef5?style=flat-square)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey?style=flat-square)
+![License](https://img.shields.io/badge/license-ISC-informational?style=flat-square)
+![Node](https://img.shields.io/badge/node-%3E%3D18-339933?style=flat-square&logo=node.js&logoColor=white)
+
+</div>
+
+---
+
+## Overview
+
+File & Folder Transfer turns your computer into a private, PIN-protected LAN transfer hub. Open the dashboard, scan the QR code (or type the PIN) on your phone's browser, and drag files across — in either direction. Everything happens over your local Wi-Fi/USB-tether/hotspot; nothing ever leaves your network.
+
+It ships three ways: an **installed Tauri desktop app**, a **portable Tauri build** (native window, no installer, no Node.js needed), or a **portable browser-based executable** (via `pkg`) that opens the dashboard in your default browser instead of a native window.
+
+## Features
+
+| | |
+|---|---|
+| **⚡ High-throughput transfers** | Tiered chunking (64KB–2MB based on file size), zero-copy `ArrayBuffer` transfers off the main thread via Web Workers, `perMessageDeflate` disabled to avoid wasting CPU compressing already-binary data, and up to 3 files uploaded concurrently. |
+| **↕ Two-way transfer** | Phones upload to the PC as usual — and the dashboard can now push files *to* any connected device directly from a native file picker, with a simple Accept/Decline prompt on the receiving end. |
+| **📁 Full folder support** | Preserves nested folder structure on upload, whether picked via file dialog or dragged-and-dropped. |
+| **🔒 Secure pairing** | 4-digit PIN or QR-token authentication, plus strict path-traversal sandboxing on every write. |
+| **📱 QR code pairing** | Scan once from the dashboard to connect — no typing IPs. |
+| **📊 Live dashboard** | Real-time transfer progress, connected-device list, completed-file history, and a scrollable activity log. |
+| **🌐 Smart network detection** | Automatically ranks available network adapters (USB tether > hotspot > Ethernet > Wi-Fi) and lets you switch the active one from the dashboard. |
+| **🛡️ Disconnect failsafes** | Mid-transfer disconnects clean up partial files and streams automatically. |
+| **🎨 Modern UI** | Built with Fluent UI Web Components, full light/dark theming. |
+| **📦 Three build targets** | Installed Tauri desktop app, portable Tauri build (native window, no install), or a dependency-free single-file portable executable (browser-based). |
+
+## Quick Start
 
 ```bash
-npm install pkg --save-dev
+npm install
+npm start
 ```
 
-### Step 2: Update `package.json`
+The dashboard opens automatically at `http://<your-local-ip>:5000/server`. Scan the QR code (or share the PIN) with any device on the same network to start sending files.
 
-Next, you need to tell `pkg` which files to include in the final executable. This is done by adding a `bin` entry and a `pkg` section to your `package.json` file.
+## Building
 
-1. **`bin` entry**: Points to your main script that starts your application.
-2. **`pkg.assets` array**: Lists all the non-JavaScript files (like your HTML files) that need to be bundled into the executable.
+### Desktop app (Tauri) — installer
 
-Here's an example of what your `package.json` might look like after these modifications:
+Native window, installer, and full system integration (including the two-way file-picker feature, which requires the Tauri runtime).
 
-```json
-{
-  "name": "your-app",
-  "version": "1.0.0",
-  "description": "Your project description",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js",
-    "build": "pkg . --targets node16-win-x64,node16-macos-x64,node16-linux-x64"
-  },
-  "bin": "index.js",
-  "pkg": {
-    "assets": [
-      "public/**/*",
-      "views/**/*"
-    ]
-  },
-  "devDependencies": {
-    "pkg": "^5.3.0"
-  }
-}
+```bash
+npm run tauri:dev     # development
+npm run tauri:build   # production installer (MSI/NSIS on Windows, DMG on macOS, deb/AppImage on Linux)
 ```
 
-Make sure to adjust the `bin` path and the `assets` array according to your project structure.
+### Desktop app (Tauri) — portable, no installer
 
-### Step 3: Run the Build Command
+Same native app, but as a plain `.exe` you can copy anywhere — no installer, no admin rights, no Node.js on the target machine.
 
-Once your `package.json` is updated, you're ready to build the executables. The following build script is included in your `package.json`:
+```bash
+npx tauri build --no-bundle
+```
+
+This produces two files in `src-tauri/target/release/`: `file-folder-transfer.exe` (the native window) and `server.exe` (the bundled backend, spawned automatically as a "sidecar" process on launch). **Both files must ship together in the same folder** — the app resolves the sidecar relative to its own location, so copy them as a pair.
+
+`beforeBuildCommand` in `tauri.conf.json` runs `scripts/build-sidecar.js` automatically before every Tauri build, which packages `server.js` via `pkg` into `src-tauri/binaries/` (patching in the app icon on Windows along the way — see below) so the sidecar is always fresh.
+
+### Portable executable, browser-based (no native window)
+
+Bundles Node.js and all dependencies into one file — copy it anywhere and run it. Opens the dashboard in your system's default browser rather than a native window (a plain Node/`pkg` binary has no windowing capability of its own — that's what the Tauri portable build above is for).
 
 ```bash
 npm run build
 ```
 
-This will instruct `pkg` to create executables for Windows, macOS, and Linux based on the configuration in `package.json`.
+Outputs to `dist/`:
+- `File-Folder-Transfer-win-x64.exe`
+- `File-Folder-Transfer-macos-x64`
+- `File-Folder-Transfer-linux-x64`
 
-### Step 4: Locate Your Executables
+On Windows, this first patches the app icon onto the `.exe` (`scripts/patch-portable-icon.js`, run automatically via the `prebuild` step) — `pkg` has no built-in icon support, so this stamps our icon onto pkg's cached base Node binary before the payload is appended, which is the only way to do it without corrupting the packaged executable.
 
-After the build process is complete, you will find the new executable files in your project directory (e.g., `your-app-server.exe` for Windows). These executables are ready to be run directly on any compatible system without needing Node.js installed.
+## Configuration
 
-For example:
+| Setting | Where | Notes |
+|---|---|---|
+| Upload directory | Dashboard | Defaults to `Desktop/FileTransfer_Received/<Device Name>/`; changeable live. |
+| PIN code | Dashboard | Random 4 digits on launch; regenerate anytime. |
+| Server name | Dashboard | Broadcasts instantly to all connected devices on change. |
+| Port | `PORT` env var | Defaults to `5000`. |
 
-- **Windows**: `your-app-server.exe`
-- **macOS**: `your-app-server-macos`
-- **Linux**: `your-app-server-linux`
+## Tech Stack
 
-### Troubleshooting
+Node.js · Express · Socket.IO · Web Workers · Tauri 2 (Rust) · Fluent UI Web Components
 
-#### `xdg-open` Warning During Build
+## License
 
-You may see a warning like the following when you run `npm run build`:
-
-```bash
-Warning Cannot include file ... node_modules/open/xdg-open into executable.
-```
-
-**What it means**:  
-This is a known issue when packaging an application that uses the `open` library. This library uses a helper script called `xdg-open` to automatically open URLs and folders on Linux systems. Unfortunately, `pkg` cannot bundle this external script into your final executable.
-
-**Impact**:  
-- The build is still successful, and the executable will work on Windows and macOS.
-- The Linux executable will run, but automatic opening of URLs or folders may not work.
-
-**Workaround for Linux**:  
-If you're running the executable on Linux, simply check the console output when you start the server. It will print the URL for the dashboard, for example:
-
-```
-Server is running at http://192.168.1.5:5000
-```
-
-You can copy and paste this URL into your browser manually.
-
-## Additional Tips
-
-- **Cross-Platform Building**: If you want to build for a specific platform, you can specify targets with the `--targets` flag in the `pkg` command, like so:
-
-  ```bash
-  pkg . --targets node16-win-x64,node16-macos-x64,node16-linux-x64
-  ```
-
-  This will build for Windows, macOS, and Linux. You can change the versions and platforms based on your needs.
-
-- **Including Files**: If you have other files (like `.env` or configuration files), ensure they are included in the `pkg.assets` array so they are bundled with the executable.
-
-- **Testing**: Always test your executable on the target operating systems to ensure everything works as expected.
-
-## Conclusion
-
-That's it! You've successfully packaged your Node.js application into a standalone executable using `pkg`. Now you can share your application without requiring users to have Node.js installed.
+ISC License.
