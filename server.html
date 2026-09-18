@@ -9,7 +9,7 @@
         import {
             provideFluentDesignSystem, fluentButton, fluentSwitch, fluentProgress,
             fluentBadge, fluentDivider, fluentTooltip
-        } from "https://cdn.jsdelivr.net/npm/@fluentui/web-components@1/dist/web-components.min.js";
+        } from "/fluent-components.min.js";
         provideFluentDesignSystem().register(
             fluentButton(), fluentSwitch(), fluentProgress(), fluentBadge(), fluentDivider(), fluentTooltip()
         );
@@ -245,8 +245,15 @@
     </fluent-design-system-provider>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const socket = io('/server_ui', { transports: ['websocket'] });
+        function initDashboard() {
+            const socket = io('/server_ui', {
+                transports: ['websocket', 'polling'],
+                reconnection: true,
+                reconnectionDelay: 500,
+                reconnectionAttempts: Infinity
+            });
+            socket.on('connect', () => console.log('[Dashboard] Connected to server_ui. Socket ID:', socket.id));
+            socket.on('connect_error', (err) => console.error('[Dashboard] Socket connection error:', err));
             const elements = {
                 dsProvider: document.getElementById('dsProvider'),
                 activityLog: document.getElementById('activityLog'),
@@ -377,20 +384,37 @@
 
             // --- Send files to a connected device (native picker, Tauri-only) ---
             async function sendFilesToDevice(deviceId, deviceName) {
-                if (!(window.__TAURI__ && window.__TAURI__.dialog && window.__TAURI__.dialog.open)) {
+                let filePaths = null;
+
+                if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
+                    try {
+                        const res = await window.__TAURI__.core.invoke('pick_files', {
+                            title: `Send files to ${deviceName}`
+                        });
+                        if (res && res.length > 0) {
+                            filePaths = res;
+                        } else if (Array.isArray(res) && res.length === 0) {
+                            return; // User intentionally cancelled the file picker
+                        }
+                    } catch (invokeErr) {
+                        console.warn('Tauri pick_files invoke failed:', invokeErr);
+                    }
+                }
+
+                if (!filePaths && window.__TAURI__ && window.__TAURI__.dialog && window.__TAURI__.dialog.open) {
+                    try {
+                        const selected = await window.__TAURI__.dialog.open({ multiple: true, directory: false, title: `Send files to ${deviceName}` });
+                        if (!selected) return;
+                        filePaths = Array.isArray(selected) ? selected : [selected];
+                    } catch (err) {
+                        console.warn('Tauri dialog.open failed:', err);
+                    }
+                }
+
+                if (!filePaths || filePaths.length === 0) {
                     showToast('File picker requires the desktop app.', 'error');
                     return;
                 }
-                let selected;
-                try {
-                    selected = await window.__TAURI__.dialog.open({ multiple: true, directory: false, title: `Send files to ${deviceName}` });
-                } catch (err) {
-                    showToast('Could not open file picker: ' + err, 'error');
-                    return;
-                }
-                if (!selected) return; // user cancelled
-                const filePaths = Array.isArray(selected) ? selected : [selected];
-                if (filePaths.length === 0) return;
 
                 socket.emit('send_files', { deviceId, filePaths }, (res) => {
                     if (!res || res.status !== 'success') {
@@ -631,7 +655,13 @@
             preferDark.addEventListener('change', e => {
                 if (!localStorage.getItem('theme')) applyTheme(e.matches ? 'dark' : 'light');
             });
-        });
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initDashboard);
+        } else {
+            initDashboard();
+        }
     </script>
 </body>
 </html>

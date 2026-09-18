@@ -4,6 +4,7 @@ use std::process::Command;
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::Manager;
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_shell::process::CommandChild;
 #[cfg(not(dev))]
 use tauri_plugin_shell::ShellExt;
@@ -11,6 +12,25 @@ use tauri_plugin_shell::ShellExt;
 // Holds the spawned backend server's process handle so it can be killed when
 // the window closes — otherwise it lingers and holds port 5000 on the next launch.
 struct ServerProcess(Mutex<Option<CommandChild>>);
+
+#[tauri::command]
+fn pick_files(app: tauri::AppHandle, title: Option<String>) -> Result<Vec<String>, String> {
+    let mut builder = app.dialog().file();
+    if let Some(ref t) = title {
+        builder = builder.set_title(t);
+    }
+    let files = builder.blocking_pick_files();
+    match files {
+        Some(selected) => {
+            let paths: Vec<String> = selected
+                .into_iter()
+                .filter_map(|fp| fp.into_path().ok().map(|p| p.to_string_lossy().into_owned()))
+                .collect();
+            Ok(paths)
+        }
+        None => Ok(Vec::new()),
+    }
+}
 
 #[tauri::command]
 fn open_folder(path: String) -> Result<String, String> {
@@ -122,11 +142,18 @@ pub fn run() {
             let window = app.get_webview_window("main").unwrap();
             std::thread::spawn(move || {
                 let addr: SocketAddr = "127.0.0.1:5000".parse().unwrap();
-                for _ in 0..50 {
+                let mut ready = false;
+                for _ in 0..100 {
                     if TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok() {
+                        ready = true;
                         break;
                     }
                     std::thread::sleep(Duration::from_millis(200));
+                }
+                if ready {
+                    if let Ok(url) = "http://127.0.0.1:5000/server".parse() {
+                        let _ = window.navigate(url);
+                    }
                 }
                 let _ = window.show();
                 let _ = window.set_focus();
@@ -141,7 +168,7 @@ pub fn run() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![open_folder, toggle_hotspot])
+        .invoke_handler(tauri::generate_handler![open_folder, toggle_hotspot, pick_files])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {

@@ -284,9 +284,26 @@ app.get('/server', (req, res) => {
     });
 });
 
+let iconSvgCache = null;
 app.get('/icon.svg', (req, res) => {
     res.type('image/svg+xml');
-    res.sendFile(path.join(__dirname, 'icon.svg'));
+    if (iconSvgCache) return res.send(iconSvgCache);
+    fs.readFile(path.join(__dirname, 'icon.svg'), (err, data) => {
+        if (err) return res.status(500).send('');
+        iconSvgCache = data;
+        res.send(data);
+    });
+});
+
+let fluentComponentsCache = null;
+app.get('/fluent-components.min.js', (req, res) => {
+    res.type('application/javascript');
+    if (fluentComponentsCache) return res.send(fluentComponentsCache);
+    fs.readFile(path.join(__dirname, 'fluent-components.min.js'), (err, data) => {
+        if (err) return res.status(500).send('/* Error loading fluent components */');
+        fluentComponentsCache = data;
+        res.send(data);
+    });
 });
 
 app.post('/open-uploads-folder', (req, res) => {
@@ -318,6 +335,7 @@ let inFlight = 0;
 const MAX_IN_FLIGHT = 16; // Wider sliding window: more chunks in flight so throughput isn't capped by RTT
 let isPaused = false;
 let isFinishedReading = false;
+let isReading = false;
 
 function getChunkSize(fileSize) {
     if (fileSize < 5 * 1024 * 1024) {        // < 5MB
@@ -342,6 +360,7 @@ self.onmessage = (event) => {
         inFlight = 0;
         isPaused = false;
         isFinishedReading = false;
+        isReading = false;
         chunkSize = getChunkSize(currentFile.size);
 
         if (currentFile.size === 0) {
@@ -367,40 +386,53 @@ self.onmessage = (event) => {
     }
 };
 
-function pumpPipeline() {
-    if (!currentFile || isPaused || isFinishedReading) return;
+async function pumpPipeline() {
+    if (!currentFile || isPaused || isFinishedReading || isReading) return;
 
-    while (inFlight < MAX_IN_FLIGHT && !isFinishedReading && !isPaused) {
-        const start = chunkIndex * chunkSize;
-        if (start >= currentFile.size) {
-            isFinishedReading = true;
-            if (inFlight === 0) {
-                self.postMessage({ type: 'file_complete', payload: { transfer_id: transferId } });
-                currentFile = null;
+    isReading = true;
+    try {
+        while (inFlight < MAX_IN_FLIGHT && !isFinishedReading && !isPaused && currentFile) {
+            const start = chunkIndex * chunkSize;
+            if (start >= currentFile.size) {
+                isFinishedReading = true;
+                if (inFlight === 0) {
+                    self.postMessage({ type: 'file_complete', payload: { transfer_id: transferId } });
+                    currentFile = null;
+                }
+                break;
             }
-            return;
-        }
 
-        const end = Math.min(start + chunkSize, currentFile.size);
-        const chunk = currentFile.slice(start, end);
-        const thisIndex = chunkIndex;
-        chunkIndex++;
-        inFlight++;
+            const end = Math.min(start + chunkSize, currentFile.size);
+            const chunk = currentFile.slice(start, end);
+            const thisIndex = chunkIndex;
+            chunkIndex++;
+            inFlight++;
 
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const chunkData = e.target.result;
+            let chunkData;
+            if (chunk.arrayBuffer) {
+                chunkData = await chunk.arrayBuffer();
+            } else {
+                chunkData = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.onerror = () => reject(new Error('File read error on client.'));
+                    reader.readAsArrayBuffer(chunk);
+                });
+            }
+
+            if (!currentFile || isPaused) {
+                break;
+            }
+
             self.postMessage({
                 type: 'chunk',
                 payload: { chunk: chunkData, transfer_id: transferId, index: thisIndex }
             }, [chunkData]); // Zero-copy ArrayBuffer transfer
-        };
-
-        reader.onerror = () => {
-            self.postMessage({ type: 'error', payload: { message: 'File read error on client.' } });
-        };
-
-        reader.readAsArrayBuffer(chunk);
+        }
+    } catch (err) {
+        self.postMessage({ type: 'error', payload: { message: err.message || 'File read error on client.' } });
+    } finally {
+        isReading = false;
     }
 }
 `;
@@ -494,7 +526,10 @@ io.on('connection', (socket) => {
                     size: Number(size) || 0,
                     received: 0,
                     completed: false,
-                    lastProgressEmit: 0
+                    lastProgressEmit: 0,
+                    nextExpectedIndex: 0,
+                    pendingChunks: new Map(),
+                    endRequested: false
                 };
 
                 if (socketTransfers[socket.id]) {
@@ -511,7 +546,50 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('upload_chunk', ({ transfer_id, chunk }, ack) => {
+    function finalizeUpload(handler, transfer_id, currentSocket) {
+        if (!handler || handler.completed) return;
+        handler.completed = true;
+        if (handler.pendingChunks) {
+            handler.pendingChunks.clear();
+        }
+        handler.stream.end(() => {
+            logMessage(`Completed file: '${handler.name}' (${handler.path})`);
+            currentSocket.emit('transfer_complete', { filename: handler.name });
+            io.of('/server_ui').emit('transfer_complete', { transfer_id, fileName: handler.name });
+            delete fileHandlers[transfer_id];
+            if (socketTransfers[currentSocket.id]) {
+                socketTransfers[currentSocket.id].delete(transfer_id);
+            }
+        });
+    }
+
+    function writeChunkToStream(handler, buf, currentAck, currentSocket, transfer_id) {
+        const canAcceptMore = handler.stream.write(buf);
+        handler.received += buf.length;
+        handler.nextExpectedIndex++;
+
+        const now = Date.now();
+        const isDone = handler.received >= handler.size;
+        if (isDone || now - handler.lastProgressEmit >= 100) {
+            handler.lastProgressEmit = now;
+            io.of('/server_ui').emit('transfer_progress', {
+                transfer_id,
+                received: handler.received,
+                total: handler.size
+            });
+            currentSocket.emit('client_progress', { transfer_id, received: handler.received, total: handler.size });
+        }
+
+        if (canAcceptMore) {
+            if (currentAck) currentAck({ status: 'ok' });
+        } else {
+            handler.stream.once('drain', () => {
+                if (currentAck) currentAck({ status: 'ok' });
+            });
+        }
+    }
+
+    socket.on('upload_chunk', ({ transfer_id, chunk, index }, ack) => {
         const handler = fileHandlers[transfer_id];
         if (!handler || !handler.stream || handler.completed) {
             if (ack) ack({ status: 'error', message: 'Transfer not found or already closed' });
@@ -520,31 +598,32 @@ io.on('connection', (socket) => {
 
         try {
             const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-            const canAcceptMore = handler.stream.write(buf);
-            handler.received += buf.length;
+            const chunkIndex = typeof index === 'number' ? index : handler.nextExpectedIndex;
 
-            // Progress events don't need to fire per-chunk — that floods the socket
-            // with JSON frames that compete with the actual file data. Throttle to
-            // ~10/sec per transfer, but always let the final (100%) update through.
-            const now = Date.now();
-            const isDone = handler.received >= handler.size;
-            if (isDone || now - handler.lastProgressEmit >= 100) {
-                handler.lastProgressEmit = now;
-                io.of('/server_ui').emit('transfer_progress', {
-                    transfer_id,
-                    received: handler.received,
-                    total: handler.size
-                });
-                socket.emit('client_progress', { transfer_id, received: handler.received, total: handler.size });
+            // Stale or duplicate chunk already written
+            if (chunkIndex < handler.nextExpectedIndex) {
+                if (ack) ack({ status: 'ok' });
+                return;
             }
 
-            if (canAcceptMore) {
-                if (ack) ack({ status: 'ok' });
-            } else {
-                // Backpressure: wait for write stream to drain before acking
-                handler.stream.once('drain', () => {
-                    if (ack) ack({ status: 'ok' });
-                });
+            // Out-of-order chunk received ahead of earlier chunks: buffer it
+            if (chunkIndex > handler.nextExpectedIndex) {
+                handler.pendingChunks.set(chunkIndex, { buf, ack });
+                return;
+            }
+
+            // Expected chunk: write immediately
+            writeChunkToStream(handler, buf, ack, socket, transfer_id);
+
+            // Flush any subsequent contiguous chunks buffered previously
+            while (handler.pendingChunks.has(handler.nextExpectedIndex)) {
+                const nextChunk = handler.pendingChunks.get(handler.nextExpectedIndex);
+                handler.pendingChunks.delete(handler.nextExpectedIndex);
+                writeChunkToStream(handler, nextChunk.buf, nextChunk.ack, socket, transfer_id);
+            }
+
+            if (handler.endRequested && handler.pendingChunks.size === 0) {
+                finalizeUpload(handler, transfer_id, socket);
             }
         } catch (chunkErr) {
             logMessage(`Chunk processing exception: ${chunkErr.message}`);
@@ -555,16 +634,11 @@ io.on('connection', (socket) => {
     socket.on('end_upload', ({ transfer_id }) => {
         const handler = fileHandlers[transfer_id];
         if (handler && handler.stream && !handler.completed) {
-            handler.completed = true;
-            handler.stream.end(() => {
-                logMessage(`Completed file: '${handler.name}' (${handler.path})`);
-                socket.emit('transfer_complete', { filename: handler.name });
-                io.of('/server_ui').emit('transfer_complete', { transfer_id, fileName: handler.name });
-                delete fileHandlers[transfer_id];
-                if (socketTransfers[socket.id]) {
-                    socketTransfers[socket.id].delete(transfer_id);
-                }
-            });
+            if (handler.pendingChunks && handler.pendingChunks.size > 0) {
+                handler.endRequested = true;
+            } else {
+                finalizeUpload(handler, transfer_id, socket);
+            }
         }
     });
 
@@ -595,6 +669,7 @@ io.on('connection', (socket) => {
         if (handler) {
             logMessage(`Upload cancelled for: '${handler.name}'`);
             handler.completed = true;
+            if (handler.pendingChunks) handler.pendingChunks.clear();
             handler.stream.destroy();
             fs.unlink(handler.path, (err) => {
                 if (err && err.code !== 'ENOENT') {
@@ -617,6 +692,7 @@ io.on('connection', (socket) => {
                 const handler = fileHandlers[transfer_id];
                 if (handler && !handler.completed) {
                     logMessage(`Client disconnected mid-transfer. Cleaning up '${handler.name}'`);
+                    if (handler.pendingChunks) handler.pendingChunks.clear();
                     handler.stream.destroy();
                     fs.unlink(handler.path, () => {});
                     io.of('/server_ui').emit('transfer_cancelled', { transfer_id, fileName: handler.name });

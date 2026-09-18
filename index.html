@@ -9,7 +9,7 @@
         import {
             provideFluentDesignSystem, fluentButton, fluentSwitch, fluentProgress,
             fluentProgressRing, fluentBadge, fluentTextField, fluentDivider
-        } from "https://cdn.jsdelivr.net/npm/@fluentui/web-components@1/dist/web-components.min.js";
+        } from "/fluent-components.min.js";
         provideFluentDesignSystem().register(
             fluentButton(), fluentSwitch(), fluentProgress(), fluentProgressRing(),
             fluentBadge(), fluentTextField(), fluentDivider()
@@ -807,13 +807,17 @@
             elements.incomingModal.classList.add('visible');
         });
 
-        socket.on('download_chunk', ({ transfer_id, chunk }, ack) => {
+        socket.on('download_chunk', ({ transfer_id, chunk, index }, ack) => {
             const entry = incomingFiles[transfer_id];
             if (!entry) {
                 if (ack) ack({ status: 'error', message: 'Unexpected transfer.' });
                 return;
             }
-            entry.chunks.push(chunk);
+            if (typeof index === 'number') {
+                entry.chunks[index] = chunk;
+            } else {
+                entry.chunks.push(chunk);
+            }
             if (ack) ack({ status: 'ok' });
         });
 

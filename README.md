@@ -61,10 +61,10 @@ npm run tauri:build   # production installer (MSI/NSIS on Windows, DMG on macOS,
 Same native app, but as a plain `.exe` you can copy anywhere — no installer, no admin rights, no Node.js on the target machine.
 
 ```bash
-npx tauri build --no-bundle
+npm run portable
 ```
 
-This produces two files in `src-tauri/target/release/`: `file-folder-transfer.exe` (the native window) and `server.exe` (the bundled backend, spawned automatically as a "sidecar" process on launch). **Both files must ship together in the same folder** — the app resolves the sidecar relative to its own location, so copy them as a pair.
+This builds the native window and bundled backend, then copies the validated portable pair into `dist/portable/`: `file-folder-transfer.exe` and `server.exe`. **Ship both files together in that folder.** The target computer needs Microsoft WebView2 Runtime, but does not need Node.js or an installer.
 
 `beforeBuildCommand` in `tauri.conf.json` runs `scripts/build-sidecar.js` automatically before every Tauri build, which packages `server.js` via `pkg` into `src-tauri/binaries/` (patching in the app icon on Windows along the way — see below) so the sidecar is always fresh.
 

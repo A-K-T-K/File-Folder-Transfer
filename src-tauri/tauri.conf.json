@@ -6,8 +6,8 @@
   "build": {
     "beforeDevCommand": "node server.js",
     "beforeBuildCommand": "node scripts/build-sidecar.js",
-    "devUrl": "http://localhost:5000/server",
-    "frontendDist": "http://localhost:5000/server"
+    "devUrl": "http://127.0.0.1:5000/server",
+    "frontendDist": "http://127.0.0.1:5000/server"
   },
   "app": {
     "withGlobalTauri": true,
@@ -15,7 +15,7 @@
       {
         "label": "main",
         "title": "File & Folder Transfer",
-        "url": "http://localhost:5000/server",
+        "url": "http://127.0.0.1:5000/server",
         "width": 1100,
         "height": 780,
         "minWidth": 780,
