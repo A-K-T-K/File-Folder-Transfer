@@ -10,6 +10,7 @@
     "prebuild": "node scripts/patch-portable-icon.js",
     "build": "pkg . --targets node18-win-x64,node18-macos-x64,node18-linux-x64 --output dist/File-Folder-Transfer",
     "portable": "node scripts/build-portable.js",
+    "release": "node scripts/upload-release.js",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
